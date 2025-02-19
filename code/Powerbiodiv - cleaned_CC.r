@@ -1,4 +1,10 @@
 # setwd("D:/a-Mes Documents/a-Current/PowerBiodiv/Systematic review/R")
+
+list.of.packages <- c("ggplot2", "readxl", "plyr", "Hmisc", "psych", "polycor", "tidyverse", "lavaan", "semPlot", "lavaanPlot", "semptools", "GPArotation", "missMDA")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+
 library(ggplot2)
 library(readxl) 
 library(plyr) 
@@ -46,7 +52,7 @@ createModel <- function(myGroup) {
 # The "allSelectionsBisNames" list stores the names of these final latent variables. 
 # The "allSelectionsBis" list stores the observed variables related to the final latent variables.
 allSelections <- allSelectionsBis <- allSelectionsBisNames <- list()
-allSelections[["Devolution"]] <- c("V019", "V043", "V053", "V054", "V055", "V057", "V058", "V059", "V090", "V095", "V110", "V111", "V112")
+allSelections[["Devolution"]] <- c("V019", "V043", "V053", "V054", "V055", "V057", "V058", "V059",  "V095", "V110", "V111", "V112") # CC: j'ai enlevé "V090" pour voir. Mais ça ne devrait rien changer vu qu'elle n'est pas retenue dans le allSelectionbis
 allSelectionsBis[["Devolution"]] <- list(c("V043", "V053", "V054", "V110"), c("V111", "V112"))
 allSelectionsBisNames[["Devolution"]] <- c("Partic_Cont", "Infl_Asym")
 allSelections[["Inclusive"]] <- c("V048", "V049", "V050", "V051", "V052", "V071", "V074")
@@ -136,14 +142,24 @@ if (optionCurate) {
   myDataClean$V060c <- ntile(as.numeric(myDataClean$V060b), 4) 
   myDataClean$V065c <- ntile(as.numeric(myDataClean$V065b), 4) 
   # Imputation of missing data With imputeFAMD, impute missing data within each group separately
-  myDataNum <- myDataClean[ , unlist(allSelections)] ################ Camille: il y a un pb avec la colonne V090.1
+  myDataNum <- myDataClean[ , unlist(allSelections)] ################ Camille: il y a un pb avec la colonne V090: elle est en double dans Devolution et Knowledge.
+  # autre pb: il y a des valeurs négatives, par ex dans la colonne V029 (qui est la 31e colonne)
+
+
+  # je vais l'enlever de Devolution pour voir. cf plus haut dans les allselections.
+  ### Camille
+  unlist(allSelections) %>% duplicated() %>% sum
+  unlist(allSelections)[31]
+  
+  ### Camille
+
   myDataFac <- as.data.frame(lapply(myDataNum, factor, ordered = TRUE))
   myDataNumImp <- myDataFacImp <- as.data.frame(matrix(0, nrow = n, ncol = length(unlist(allSelections))))
   colnames(myDataNumImp) <- colnames(myDataFacImp) <- unlist(allSelections) ############### ptet corrigé ici ??
   for (i in names(allSelections) ) {  # impute by groups separately
     set.seed(1234)
     myDataFacImp[ , allSelections[[i]] ] <- as.data.frame(lapply(imputeFAMD(myDataFac[, allSelections[[i]]], ncp = 2)$completeObs, factor, ordered = TRUE)) # pb for i= "Social" dans les V119 et V120
-    myDataNumImp[ , allSelections[[i]] ] <- as.data.frame(imputeFAMD(myDataNum[, allSelections[[i]]], ncp = 2)$completeObs)
+    myDataNumImp[ , allSelections[[i]] ] <- as.data.frame(imputeFAMD(myDataNum[, allSelections[[i]]], ncp = 2)$completeObs) 
   }
 }
 
@@ -163,13 +179,14 @@ myGroup <- "Social"
 ############ CC
 
 
-mat <- apply(myDataFactor, 2, function(x){
+mat <- apply(myDataFacImp, 2, function(x){
   x %>% 
     as.factor() %>% 
     as.numeric()
 })
 heatmap(mat)
-
+heatmap(myDataNumImpMat)
+heatmap(myDataNumImpMat)
 ############ CC
 
 
