@@ -10,7 +10,7 @@
 .Ruserdata
 
 # the data folder
-.data/
+data/
 
 # RStudio files ----
 *.Rproj
