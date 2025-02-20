@@ -174,7 +174,7 @@ load(file = "data/myDataFacImp.rdata")
 ########## Factor reduction: EFA & CFA
 # We do this manually because it is an iterative process
 # We do this by group. The list of groups is found with: names(allSelections)
-myGroup <- "Social"
+myGroup <- "Devolution"
 
 ############ CC
 
@@ -194,6 +194,16 @@ heatmap(myDataNumImpMat)
 ## EFA with polychoric FA (iterative process: change the number of factors and observe results: do they make sense?)
 myDataFactor <- myDataFacImp[ , allSelections[[myGroup]]]
 myCor <- hetcor(myDataFactor)   # polychoric corr matrix
+
+# for "Devolution": polychoric correlation between variables V043 and V059 produced warnings: NaNs
+# can't figure out why. 
+dat <- myDataFactor[,c("V043", "V059")]
+dat <- myDataFactor[,c("V019", "V057")]
+str(dat)
+hetcor(dat) %>% summary
+polychor(dat)
+?polychor()
+
 myEFA <- psych::fa(r=myCor$correlations, nfactors = 2, n.obs=n, rotate = "varimax")
 fa.diagram(myEFA, cut = 0.2, digits = 2, simple = TRUE)
 summary(myEFA)
@@ -376,3 +386,4 @@ title(main = myFit, col.main= "red", cex.sub = 0.95)
 
 
 
+ 
