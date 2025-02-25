@@ -174,7 +174,7 @@ load(file = "data/myDataFacImp.rdata")
 ########## Factor reduction: EFA & CFA
 # We do this manually because it is an iterative process
 # We do this by group. The list of groups is found with: names(allSelections)
-myGroup <- "Devolution"
+myGroup <- "Social"
 
 ############ CC
 
@@ -197,12 +197,18 @@ myCor <- hetcor(myDataFactor)   # polychoric corr matrix
 
 # for "Devolution": polychoric correlation between variables V043 and V059 produced warnings: NaNs
 # can't figure out why. 
-dat <- myDataFactor[,c("V043", "V059")]
+dat <- myDataFactor[,c("V114", "V119")]
 dat <- myDataFactor[,c("V019", "V057")]
 str(dat)
 hetcor(dat) %>% summary
-polychor(dat)
-?polychor()
+polychor(dat$V114, dat$V119) # no errors here.
+
+# to find out how many factors are needed: 2. All good.
+parallel<-fa.parallel(myCor$correlations, fm='minres', fa='fa')
+
+# CC: this example shows the same warnings without much concern: https://rpubs.com/Pun_/Exploratory_factor_Analysis
+# also read this for later: https://groups.google.com/g/lavaan/c/tPW4URKfhOE
+# maybe this one too on EFA: https://wnarifin.github.io/lecture/mstat/efa_medstat_practical.html
 
 myEFA <- psych::fa(r=myCor$correlations, nfactors = 2, n.obs=n, rotate = "varimax")
 fa.diagram(myEFA, cut = 0.2, digits = 2, simple = TRUE)
