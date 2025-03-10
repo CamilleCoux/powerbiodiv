@@ -1,0 +1,253 @@
+---
+title: "Travail sur les SEM"
+format: 
+  docx: default
+  html: default
+
+---
+
+
+```{r, echo=FALSE, message = FALSE, warning=FALSE}
+load(file = here::here("data/cc.RData"))
+
+library(ggplot2)
+library(readxl) 
+library(plyr) 
+library(Hmisc)
+library(psych)
+library(stringr)
+library(polycor)
+library(dplyr)
+library(car)
+library(FactoMineR) 
+library(psych)     
+library(stringr)
+library(lavaan)
+library(semPlot)
+library(lavaanPlot)
+library(semptools)
+library(GPArotation)
+library(missMDA)
+```
+
+
+```{r, echo=FALSE}
+#################
+#### My functions
+wrapper <- function(x, ...) { paste(strwrap(x, ...), collapse = "\n") }
+createModel <- function(myGroup) {
+  if (is.list(allSelectionsBis[[myGroup]])) {
+    SEM1 <- "\n"
+    for (j in 1:length(allSelectionsBis[[myGroup]])) {
+      if (length(allSelectionsBis[[myGroup]][[j]]) > 1) {
+        SEM1 <- paste0(SEM1, allSelectionsBisNames[[myGroup]][j], " =~ ", paste0(allSelectionsBis[[myGroup]][[j]], collapse =  " + "), "\n")
+      } else {
+        SEM1 <- paste0(SEM1, allSelectionsBisNames[[myGroup]][j], " =~ 1 * ", allSelectionsBis[[myGroup]][[j]], "\n")
+      }
+    }
+  } else {
+    SEM1 <- paste0(paste0(myGroup, " =~ ", paste0(allSelectionsBis[[myGroup]], collapse =  " + "), collapse = "\n"), "\n")
+  }
+  return(SEM1)
+}
+```
+
+
+```{r, echo=true}
+myGroup <- "Social"
+
+## EFA with polychoric FA (iterative process: change the number of factors and observe results: do they make sense?)
+myDataFactor <- myDataFacImp[ , allSelections[[myGroup]]]
+myCor <- hetcor(myDataFactor)   # polychoric corr matrix
+```
+I checked out this error and couldn't find a reason for it. 
+
+For myGroup= "Social", we get : "polychoric correlation between variables V116 and V118 produced warnings: NaNs produced." 
+
+I looked at these 2 vars more specifically. The NaN warning persists, but results seem consistent and I can't locate the NaNs.
+
+```{r, echo=true}
+dat <- myDataFactor[,c("V116", "V118")]
+str(dat)
+hetcor(dat) 
+
+# But the 2 vars are highly correlated... 
+
+# Tried to use another function:
+polychor(dat$V116, dat$V118) # no errors here. Same high corr coefficient. So that might be the pb.
+```
+
+Check if the ML method would be better:
+```{r, echo=true}
+myCor2 <- hetcor(myDataFactor, ML=TRUE) # no errors here.
+```
+
+
+```{r, echo=true}
+# Compare outputs: they're very similar
+heatmap(myCor$correlations) 
+heatmap(myCor2$correlations)
+```
+
+CCL: I wouldn't worry too much. You can use ML if you'd prefer, but it's much slower, and since the results are pretty much the same...
+
+# Next step: EFA.
+
+```{r, echo=true}
+n=82
+# this produces some warnings about ultra-heywood cases.
+myEFA <- psych::fa(r=myCor$correlations, nfactors = 2, n.obs=n, rotate = "varimax", fm="ml")
+```
+
+from here: <https://www.sfu.ca/sasdoc/sashtml/stat/chap26/sect21.htm>
+ultra-Heywood case implies that some unique factor has negative variance, a clear indication that something is wrong. Possible causes include
+
+- bad prior communality estimates
+- too many common factors
+- too few common factors
+- not enough data to provide stable estimates
+- the common factor model is not an appropriate model for the data 
+
+I can't be sure about the 1st point. It could be related to the EFA warning, but I don't think so. I tried to run the command again after selecting a subset of factors for which there were no "NaNs produced" warnings, and I still got this.
+
+Too many / few common factors : I checked this, and it looks fine:
+```{r, echo=true}
+# to find out how many factors are needed: 2. All good.
+parallel<-fa.parallel(myCor$correlations, fm='minres', fa='fa') 
+# Here I tried a few different "fm" methods, without any major imporvements...
+
+```
+
+So I think it has to do with the 2 last points: not enough data and/or CF model inappropriate.
+
+I also tried other functions:
+
+```{r, echo=true}
+# use lavCor instead of fa():
+cc_cor <- lavaan::lavCor(myDataFactor, ordered =  unlist(allSelectionsBis[[myGroup]]) )
+
+cc_cor # roughly the same output as myCor$correlations
+n=82 # nb of obs
+cc_EFA <- psych::fa(r=cc_cor, nfactors = 2, n.obs=n, rotate = "varimax", fm="ml") # no errors or warnings here
+
+# Compare outputs:
+myEFA
+
+cc_EFA
+
+```
+
+
+# CFA
+
+For this first bit of code, I replaced the bits producing warnings by the alternative functions from lavaan I mentionned before, which produced the same results, but without the warnings about NaNs.
+
+```{r, echo=true}
+myDataFactor <- myDataFacImp[ , unlist(allSelectionsBis[[myGroup]])]
+SEM1 <- createModel(myGroup)
+fit1 <- cfa(SEM1, data = myDataFacImp, sample.nobs = n, std.lv = TRUE, ordered = TRUE)
+summary(fit1, standardized = TRUE) # we want the pvalue to be > 0.05 because the model has to be similar to expectations, rather than different
+
+# look at the 1st table of latent variables. Not the thresholds.
+myFitMeasures <- fitMeasures(fit1, c("cfi", "rmsea", "srmr"))
+myFit <- paste(paste(c("CFI", "RMSEA", "SRMR"), round(c(myFitMeasures), 2), sep = "="), collapse = ", ")
+if (!is.list(allSelectionsBis[[myGroup]])) {
+  # myCronbach <- psych::alpha(hetcor(myDataFactor)$correlations, n.obs = n, check.keys=TRUE)  
+  # CC: alternative function:
+  cc_Cronbach <- psych::alpha(lavaan::lavCor(myDataFactor))  
+
+  myFit <- paste(myFit, "\n", "Cronbach reliability=", round(cc_Cronbach$total$raw_alpha, 2))
+}
+
+plotFit1 <- semPaths(fit1,  what = "path", whatLabels = "stand", rotation = 2, intercepts = FALSE, thresholds = FALSE,
+                     residuals = TRUE,
+                     sizeMan = 7, edge.label.cex = 1, nCharNodes = 0, nCharEdges = 0, DoNotPlot = TRUE, title = FALSE)
+plotFit1b <- mark_sig(plotFit1, fit1)
+
+plot(plotFit1b)
+par(mar = c(5, 1, 1, 1))
+title(main = myGroup, sub = myFit,
+      col.main= "blue", col.sub = "red", cex.sub = 0.95)
+```
+
+
+I jumped over the model diagnostics section straight to the "simpler SEM":
+
+```{r, echo=true}
+# simpler model:
+SEM1 <- '
+  ## Measurement model
+
+Partic_Cont =~ V043 + V053 + V054 + V110
+Infl_Asym =~ V111 + V112
+Inclusive =~ V048 + V049 + V051 
+Deliberation =~ V070 + V093 + V094 + V096
+Facil_Power =~ V046 + V082
+Social =~ V114 + V115 + V116 + V117 + V118 + V119 + V120
+
+  ## Structural model 
+  # path: direct effect
+  Social ~ Partic_Cont + Infl_Asym + Inclusive + Deliberation + Facil_Power
+'
+
+
+fit1 <- lavaan::sem(SEM1, data = myDataFacImp, ordered = colnames(myDataFacImp),
+            meanstructure = FALSE,  fixed.x = FALSE, std.lv = TRUE)
+# CC: 
+ fit1_resids <- resid(fit1, type="cor")$cov
+range(fit1_resids)
+myDataFactor <- myDataFacImp[ , colnames(residuals(fit1)$cov)]
+summary(fit1, standardized = TRUE)
+# need to look at latent variables and especially the regressions. 
+
+myFitMeasures <- fitMeasures(fit1, c("cfi", "rmsea", "srmr"))
+myFit <- paste(paste(c("CFI", "RMSEA", "SRMR"), round(c(myFitMeasures), 2), sep = "="), collapse = ", ")
+plotFit1 <- semPaths(fit1,  what = "path", whatLabels = "stand", 
+                     rotation = 1, intercepts = FALSE, thresholds = FALSE,
+                     sizeMan = 7, edge.label.cex = 1, nCharNodes = 0, nCharEdges = 0, 
+                     DoNotPlot = TRUE, title = FALSE, layout = "tree", exoVar = FALSE) # "circle2" exoVar = FALSE, exoCov = FALSE,
+plotFit1b <- mark_sig(plotFit1, fit1)
+plot(plotFit1b)
+par(mar = c(5, 1, 1, 1))
+title(main = myFit, col.main= "red", cex.sub = 0.95)
+```
+
+I tried to simplify the model even further, but probably in a way that doesn't make sense:
+
+```{r, echo=true}
+## CC playing around
+
+SEM_cc <- '
+  ## Measurement model
+
+Partic_Cont =~ V043 + V053 + V054 
+Infl_Asym =~ V111 + V112
+Social =~ V114 + V115 + V116 
+
+  ## Structural model 
+  # path: direct effect
+  Social ~ Partic_Cont + Infl_Asym 
+'
+
+fit_cc <- lavaan::sem(SEM_cc, data = myDataFacImp, ordered = colnames(myDataFacImp),
+            meanstructure = FALSE,  fixed.x = FALSE, std.lv = TRUE)
+# CC: 
+ fit_cc_resids <- resid(fit_cc, type="cor")$cov
+range(fit_cc_resids)
+myDataFactor <- myDataFacImp[ , colnames(residuals(fit_cc)$cov)]
+summary(fit_cc, standardized = TRUE)
+# need to look at latent variables and especially the regressions. 
+
+myFitMeasures <- fitMeasures(fit_cc, c("cfi", "rmsea", "srmr"))
+myFit <- paste(paste(c("CFI", "RMSEA", "SRMR"), round(c(myFitMeasures), 2), sep = "="), collapse = ", ")
+plotFit1 <- semPaths(fit1,  what = "path", whatLabels = "stand", 
+                     rotation = 1, intercepts = FALSE, thresholds = FALSE,
+                     sizeMan = 7, edge.label.cex = 1, nCharNodes = 0, nCharEdges = 0, 
+                     DoNotPlot = TRUE, title = FALSE, layout = "tree", exoVar = FALSE) # "circle2" exoVar = FALSE, exoCov = FALSE,
+plotFit1b <- mark_sig(plotFit1, fit1)
+plot(plotFit1b)
+par(mar = c(5, 1, 1, 1))
+title(main = myFit, col.main= "red", cex.sub = 0.95)
+```
+
+

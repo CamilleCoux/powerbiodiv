@@ -169,27 +169,27 @@ if (optionCurate) {
 
 # load(here::here("data/myDataFacImp.RData"))
 load(file = "data/myDataFacImp.rdata")
-
-#################
-########## Factor reduction: EFA & CFA
-# We do this manually because it is an iterative process
-# We do this by group. The list of groups is found with: names(allSelections)
-myGroup <- "Social"
-
-############ CC
+load(file = here::here("data/cc.rdata"))
 
 
-mat <- apply(myDataFacImp, 2, function(x){
+# save(myDataFacImp, allSelections, allSelectionsBis, allSelectionsBisNames, myFile, createModel, intoNumbers, wrapper, file="data/cc.RData" )
+
+
+
+ 
+
+
+mat <- apply(myDataFactor, 2, function(x){
   x %>% 
     as.factor() %>% 
     as.numeric()
 })
 heatmap(mat)
 heatmap(myDataNumImpMat)
-heatmap(myDataNumImpMat)
+heatmap(myCor$correlations)
 ############ CC
 
-
+myGroup = "Social"
 
 ## EFA with polychoric FA (iterative process: change the number of factors and observe results: do they make sense?)
 myDataFactor <- myDataFacImp[ , allSelections[[myGroup]]]
@@ -197,11 +197,11 @@ myCor <- hetcor(myDataFactor)   # polychoric corr matrix
 
 # for "Devolution": polychoric correlation between variables V043 and V059 produced warnings: NaNs
 # can't figure out why. 
-dat <- myDataFactor[,c("V114", "V119")]
+dat <- myDataFactor[,c("V116", "V118")]
 dat <- myDataFactor[,c("V019", "V057")]
 str(dat)
 hetcor(dat) %>% summary
-polychor(dat$V114, dat$V119) # no errors here.
+polychor(dat$V116, dat$V118) # no errors here.
 
 # to find out how many factors are needed: 2. All good.
 parallel<-fa.parallel(myCor$correlations, fm='minres', fa='fa')
@@ -210,10 +210,36 @@ parallel<-fa.parallel(myCor$correlations, fm='minres', fa='fa')
 # also read this for later: https://groups.google.com/g/lavaan/c/tPW4URKfhOE
 # maybe this one too on EFA: https://wnarifin.github.io/lecture/mstat/efa_medstat_practical.html
 
-myEFA <- psych::fa(r=myCor$correlations, nfactors = 2, n.obs=n, rotate = "varimax")
-fa.diagram(myEFA, cut = 0.2, digits = 2, simple = TRUE)
+
+# CC: try to use lavCor instead of fa():
+# cc_cor <- lavCor(myDataFactor, ordered =  unlist(allSelectionsBis[[myGroup]]) )
+
+n=82
+myEFA <- psych::fa(r=myCor$correlations, nfactors = 2, n.obs=n, rotate = "varimax", fm="ml")
+cc_EFA <- psych::fa(r=cc_cor, nfactors = 2, n.obs=n, rotate = "varimax", fm="ml")
+# Warning messages:
+# 1: In fa.stats(r = r, f = f, phi = phi, n.obs = n.obs, np.obs = np.obs,  :
+# The estimated weights for the factor scores are probably incorrect.  Try a different factor score estimation method.
+# 2: In fac(r = r, nfactors = nfactors, n.obs = n.obs, rotate = rotate,  :
+# An ultra-Heywood case was detected.  Examine the results carefully
+
+# Après un peu de recherche biblio: https://www.sfu.ca/sasdoc/sashtml/stat/chap26/sect21.htm
+# ultra-Heywood case implies that some unique factor has negative variance, a clear indication that something is wrong. Possible causes include
+
+#     bad prior communality estimates
+#     too many common factors
+#     too few common factors
+#     not enough data to provide stable estimates
+#     the common factor model is not an appropriate model for the data 
+
+heatmap(myCor$correlations) # pas d'anomalies
+
+
+fa.diagram(myEFA, cut = 0.2, digits = 2, simple = TRUE,)
 summary(myEFA)
 print(myEFA$loadings)
+
+
 
 ## CFA
 myDataFactor <- myDataFacImp[ , unlist(allSelectionsBis[[myGroup]])]
@@ -224,8 +250,12 @@ summary(fit1, standardized = TRUE) # we want the pvalue to be > 0.05 because the
 myFitMeasures <- fitMeasures(fit1, c("cfi", "rmsea", "srmr"))
 myFit <- paste(paste(c("CFI", "RMSEA", "SRMR"), round(c(myFitMeasures), 2), sep = "="), collapse = ", ")
 if (!is.list(allSelectionsBis[[myGroup]])) {
-  myCronbach <- psych::alpha(hetcor(myDataFactor)$correlations, n.obs = n, check.keys=TRUE)  
-  myFit <- paste(myFit, "\n", "Cronbach reliability=", round(myCronbach$total$raw_alpha, 2))
+  # myCronbach <- psych::alpha(hetcor(myDataFactor)$correlations, n.obs = n, check.keys=TRUE)  
+  # CC: 
+  cc_Cronbach <- psych::alpha(lavaan::lavCor(myDataFactor))  
+
+
+  myFit <- paste(myFit, "\n", "Cronbach reliability=", round(cc_Cronbach$total$raw_alpha, 2))
 }
 plotFit1 <- semPaths(fit1,  what = "path", whatLabels = "stand", rotation = 2, intercepts = FALSE, thresholds = FALSE,
                      residuals = TRUE,
@@ -249,11 +279,13 @@ round(diag(lavInspect(fit1, "est")$theta) , 2)
 # Testing for Multicollinearity VIF = 1: No multicollinearity, 1-5: Low to moderate multicollinearity, > 5: strong multicollinearity, > 10: very strong multicollinearity
 testMulticol <- lm(reformulate(paste0(names(myDataFactor), collapse = "+"), "y")  , 
                    data = cbind(data.frame(y = runif(n)), lapply(myDataFactor, function(x){ as.numeric(str_sub(x, -1, -1)) }  )))
-sort(round(vif(testMulticol),2))
+sort(round(vif(testMulticol),2)) # should be 1 < x < 5 # all good
 # anova(fitOld , fit1)
 vcov(fit1)
 #  det(vcov(fit1)) 
-round(hetcor(myDataFactor)$correlations, 2)
+# round(hetcor(myDataFactor)$correlations, 2)
+round(lavCor(myDataFactor), 2)
+
 round(rcorr(as.matrix(myDataNumImp[ , names(myDataFactor)]), type="spearman")$r, 2)
 
 
@@ -324,18 +356,23 @@ SEM1 <- '
 
 Partic_Cont =~ V043 + V053 + V054 + V110
 Infl_Asym =~ V111 + V112
-Inclusive =~ V048 + V049 + V051 + V052
+Inclusive =~ V048 + V049 + V051 
 Deliberation =~ V070 + V093 + V094 + V096
 Facil_Power =~ V046 + V082
-
 Social =~ V114 + V115 + V116 + V117 + V118 + V119 + V120
 
   ## Structural model 
   # path: direct effect
   Social ~ Partic_Cont + Infl_Asym + Inclusive + Deliberation + Facil_Power
 '
-fit1 <- sem(SEM1, data = myDataFacImp,
+
+
+
+fit1 <- lavaan::sem(SEM1, data = myDataFacImp, ordered = colnames(myDataFacImp),
             meanstructure = FALSE,  fixed.x = FALSE, std.lv = TRUE)
+# CC: 
+ fit1_resids <- resid(fit1, type="cor")$cov
+range(fit1_resids)
 myDataFactor <- myDataFacImp[ , colnames(residuals(fit1)$cov)]
 summary(fit1, standardized = TRUE)
 # need to look at latent variables and especially the regressions. 
@@ -352,6 +389,56 @@ par(mar = c(5, 1, 1, 1))
 title(main = myFit, col.main= "red", cex.sub = 0.95)
 
 # besoin d'aide ici pour comprendre les messages d'erreur.
+
+
+## CC playing around
+
+SEM_cc <- '
+  ## Measurement model
+
+Partic_Cont =~ V043 + V053 + V054 
+Infl_Asym =~ V111 + V112
+Social =~ V114 + V115 + V116 
+
+  ## Structural model 
+  # path: direct effect
+  Social ~ Partic_Cont + Infl_Asym 
+'
+
+fit_cc <- lavaan::sem(SEM_cc, data = myDataFacImp, ordered = colnames(myDataFacImp),
+            meanstructure = FALSE,  fixed.x = FALSE, std.lv = TRUE)
+# CC: 
+ fit_cc_resids <- resid(fit_cc, type="cor")$cov
+range(fit_cc_resids)
+myDataFactor <- myDataFacImp[ , colnames(residuals(fit_cc)$cov)]
+summary(fit_cc, standardized = TRUE)
+# need to look at latent variables and especially the regressions. 
+
+myFitMeasures <- fitMeasures(fit_cc, c("cfi", "rmsea", "srmr"))
+myFit <- paste(paste(c("CFI", "RMSEA", "SRMR"), round(c(myFitMeasures), 2), sep = "="), collapse = ", ")
+plotFit1 <- semPaths(fit1,  what = "path", whatLabels = "stand", 
+                     rotation = 1, intercepts = FALSE, thresholds = FALSE,
+                     sizeMan = 7, edge.label.cex = 1, nCharNodes = 0, nCharEdges = 0, 
+                     DoNotPlot = TRUE, title = FALSE, layout = "tree", exoVar = FALSE) # "circle2" exoVar = FALSE, exoCov = FALSE,
+plotFit1b <- mark_sig(plotFit1, fit1)
+plot(plotFit1b)
+par(mar = c(5, 1, 1, 1))
+title(main = myFit, col.main= "red", cex.sub = 0.95)
+
+# besoin d'aide ici pour comprendre les messages d'erreur.
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # plot without the measurement part
@@ -387,7 +474,6 @@ title(main = myFit, col.main= "red", cex.sub = 0.95)
 #            edge_options = list(color = "grey"), 
 #            coefs = TRUE, sig = 0.10, stand = TRUE, stars = c("regress", "latent"), covs = TRUE)
 # lavTestWald(fit1, "a == c")
-
 
 
 
