@@ -53,6 +53,12 @@ createModel <- function(myGroup) {
 ```
 
 
+1st things 1st: let's check out all the correlations between the observed variables, now that they're all transformed into ordinal variables:
+```{r, echo=true}
+
+
+```
+
 ```{r, echo=true}
 myGroup <- "Social"
 

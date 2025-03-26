@@ -23,6 +23,29 @@ library(lavaanPlot)
 library(semptools)
 library(GPArotation)
 library(missMDA)
+library(ade4)
+library(magrittr)
+
+
+
+################# CC
+load(file = here::here("data/cc.RData"))
+
+myFile <- "data/PowerBiodiv_systematic_review_data_v20241017_BL.xlsx"
+myData <- as.data.frame(read_excel(myFile, sheet = "Data"))
+myData <- myData[ -1, ] 
+myData <- as.data.frame(lapply(myData, function(x) {gsub("\u2010", "-", x)}))
+
+myVarTypes <- as.data.frame(read_excel(myFile, sheet = "Variables"))
+myVarTypes$Description <- gsub("\u2010", '-', myVarTypes$Description)
+myVarTypes$Number_different_responses <- apply(myData, 2, function(x) {length(unique(x))})
+
+
+myGroup = "Social"
+
+
+
+################# CC end
 
 #################
 #### My functions
@@ -79,6 +102,22 @@ allSelectionsBis[["Environmental"]] <- c("V121b", "V122", "V123", "V124", "V125"
 allSelections[["Process"]] <- c("V014" , "V015" , "V020" , "V021" , "V128b" , "V011c" , "V060c" , "V065c" )
 allSelectionsBis[["Process"]] <- list(c("V014" , "V015", "V020", "V128b"), "V065c", "V011c")
 allSelectionsBisNames[["Process"]] <- c("Level", "Magnitude", "Duration")
+
+
+
+final_names <- allSelectionsBis
+final_names <- lapply(1:length(final_names), function(x){
+  latvar <- names(final_names[x])
+  names(final_names[[x]]) <- allSelectionsBisNames[[latvar]]
+  return(final_names[x])
+})
+
+
+cc_names <- list()
+cc_names[["Devolution"]] <- list(
+  f1=c( "V019", "V043" ,"V053" ,"V054" ,"V095"),
+  f2 = c("V053","V057","V059", "V110", "V112")
+)
 
 
 #################
@@ -146,11 +185,10 @@ if (optionCurate) {
   # autre pb: il y a des valeurs négatives, par ex dans la colonne V029 (qui est la 31e colonne)
 
 
-  # je vais l'enlever de Devolution pour voir. cf plus haut dans les allselections.
-  ### Camille
-  unlist(allSelections) %>% duplicated() %>% sum
-  unlist(allSelections)[31]
-  
+  # # je vais l'enlever de Devolution pour voir. cf plus haut dans les allselection   s.
+  # ### Camille
+  # unlist(allSelections) %>% duplicated() %>% sum
+  # unlist(allSelections)[31]
   ### Camille
 
   myDataFac <- as.data.frame(lapply(myDataNum, factor, ordered = TRUE))
@@ -158,7 +196,11 @@ if (optionCurate) {
   colnames(myDataNumImp) <- colnames(myDataFacImp) <- unlist(allSelections) ############### ptet corrigé ici ??
   for (i in names(allSelections) ) {  # impute by groups separately
     set.seed(1234)
+
+    # impute from ordered factors:
     myDataFacImp[ , allSelections[[i]] ] <- as.data.frame(lapply(imputeFAMD(myDataFac[, allSelections[[i]]], ncp = 2)$completeObs, factor, ordered = TRUE)) # pb for i= "Social" dans les V119 et V120
+
+    # impute from numeric
     myDataNumImp[ , allSelections[[i]] ] <- as.data.frame(imputeFAMD(myDataNum[, allSelections[[i]]], ncp = 2)$completeObs) 
   }
 }
@@ -175,36 +217,22 @@ load(file = here::here("data/cc.rdata"))
 # save(myDataFacImp, allSelections, allSelectionsBis, allSelectionsBisNames, myFile, createModel, intoNumbers, wrapper, file="data/cc.RData" )
 
 
+# ""Devolution"    "Inclusive"     "Constructive"  "Knowledge"     "Facilitation"  "Context"       "Goals"         "Social"       "Environmental" "Process" 
+# Social : ok. Leave as is.
 
- 
-
-
-mat <- apply(myDataFactor, 2, function(x){
-  x %>% 
-    as.factor() %>% 
-    as.numeric()
-})
-heatmap(mat)
-heatmap(myDataNumImpMat)
-heatmap(myCor$correlations)
-############ CC
-
-myGroup = "Social"
+myGroup = "Inclusive"
 
 ## EFA with polychoric FA (iterative process: change the number of factors and observe results: do they make sense?)
+# groupvars <-  allSelections[[myGroup]][-grep("V111", allSelections[[myGroup]])]
+# myDataFactor <- myDataFacImp[ , groupvars]
 myDataFactor <- myDataFacImp[ , allSelections[[myGroup]]]
+myDataFactor <- myDataFacImp[ , unlist(allSelectionsBis[[myGroup]])]
+
 myCor <- hetcor(myDataFactor)   # polychoric corr matrix
 
-# for "Devolution": polychoric correlation between variables V043 and V059 produced warnings: NaNs
-# can't figure out why. 
-dat <- myDataFactor[,c("V116", "V118")]
-dat <- myDataFactor[,c("V019", "V057")]
-str(dat)
-hetcor(dat) %>% summary
-polychor(dat$V116, dat$V118) # no errors here.
 
 # to find out how many factors are needed: 2. All good.
-parallel<-fa.parallel(myCor$correlations, fm='minres', fa='fa')
+fa.parallel(myCor$correlations, fm='minres', fa='fa')
 
 # CC: this example shows the same warnings without much concern: https://rpubs.com/Pun_/Exploratory_factor_Analysis
 # also read this for later: https://groups.google.com/g/lavaan/c/tPW4URKfhOE
@@ -212,27 +240,44 @@ parallel<-fa.parallel(myCor$correlations, fm='minres', fa='fa')
 
 
 # CC: try to use lavCor instead of fa():
-# cc_cor <- lavCor(myDataFactor, ordered =  unlist(allSelectionsBis[[myGroup]]) )
+cc_cor <- lavCor(myDataFactor, ordered =  unlist(allSelectionsBis[[myGroup]]) )
+diag(cc_cor) <- 0
+cc_cor_mat <- as.data.frame(cc_cor) %>% as.matrix
+
+cc_cor_mat %>% abs() %>% apply(., 1, max)
+
+# V074 et V071 sont corrélées à 0.875 : exit V071
+# V071 et V050 sont corrélées à 0.0.9 : exit V071
+# V052 et V049 sont corrélées à 0.8: exit V052 
+
+cc_selection <- c( "V048","V049","V050","V051","V074")
+myDataFactor <- myDataFacImp[ , cc_selection]
+myCor <- hetcor(myDataFactor)  
+cc_cor <- lavCor(myDataFactor, ordered =  cc_selection )
+
+diag(cc_cor) <- 1
+cc_cor_mat <- as.data.frame(cc_cor) %>% as.matrix
+
+cc_cor_mat %>% abs() %>% apply(., 1, max)
+
+image(cc_cor_mat)
 
 n=82
 myEFA <- psych::fa(r=myCor$correlations, nfactors = 2, n.obs=n, rotate = "varimax", fm="ml")
-cc_EFA <- psych::fa(r=cc_cor, nfactors = 2, n.obs=n, rotate = "varimax", fm="ml")
-# Warning messages:
-# 1: In fa.stats(r = r, f = f, phi = phi, n.obs = n.obs, np.obs = np.obs,  :
-# The estimated weights for the factor scores are probably incorrect.  Try a different factor score estimation method.
-# 2: In fac(r = r, nfactors = nfactors, n.obs = n.obs, rotate = rotate,  :
-# An ultra-Heywood case was detected.  Examine the results carefully
+cc_EFA <- psych::fa(r=cc_cor_mat, nfactors = 2, n.obs=n, rotate = "varimax", fm="ml")
 
-# Après un peu de recherche biblio: https://www.sfu.ca/sasdoc/sashtml/stat/chap26/sect21.htm
-# ultra-Heywood case implies that some unique factor has negative variance, a clear indication that something is wrong. Possible causes include
 
-#     bad prior communality estimates
-#     too many common factors
-#     too few common factors
-#     not enough data to provide stable estimates
-#     the common factor model is not an appropriate model for the data 
+lavaan_EFA <- lavaan::efa(data = myDataFactor,
+  ov.names = cc_selection,
+  nfactors = 2, 
+  rotation= "varimax",
+  output="lavaan"
+)
+summary(lavaan_EFA)
+fitMeasures(lavaan_EFA, fit.measures = c("cfi", "rmsea", "srmr", "tli"))
+lavaanPlot(lavaan_EFA,  coefs = TRUE)
+inspect(lavaan_EFA,what="std")$lambda
 
-heatmap(myCor$correlations) # pas d'anomalies
 
 
 fa.diagram(myEFA, cut = 0.2, digits = 2, simple = TRUE,)
@@ -241,13 +286,15 @@ print(myEFA$loadings)
 
 
 
+
 ## CFA
 myDataFactor <- myDataFacImp[ , unlist(allSelectionsBis[[myGroup]])]
 SEM1 <- createModel(myGroup)
-fit1 <- cfa(SEM1, data = myDataFacImp, sample.nobs = n, std.lv = TRUE, ordered = TRUE)
+SEM1 <- c("Social =~ V114 + V115 + V116 + V117 + V118 + V119 + V120")
+fit1 <- lavaan::cfa(SEM1, data = myDataFacImp, sample.nobs = n, std.lv = TRUE, ordered = TRUE)
 summary(fit1, standardized = TRUE) # we want the pvalue to be > 0.05 because the model has to be similar to expectations, rather than different
 # look at the 1st table of latent variables. Not the thresholds.
-myFitMeasures <- fitMeasures(fit1, c("cfi", "rmsea", "srmr"))
+myFitMeasures <- fitMeasures(fit1, c("cfi", "rmsea", "srmr", "tli")) # not bad !
 myFit <- paste(paste(c("CFI", "RMSEA", "SRMR"), round(c(myFitMeasures), 2), sep = "="), collapse = ", ")
 if (!is.list(allSelectionsBis[[myGroup]])) {
   # myCronbach <- psych::alpha(hetcor(myDataFactor)$correlations, n.obs = n, check.keys=TRUE)  
@@ -265,6 +312,8 @@ plot(plotFit1b)
 par(mar = c(5, 1, 1, 1))
 title(main = myGroup, sub = myFit,
       col.main= "blue", col.sub = "red", cex.sub = 0.95)
+
+
 
 
 ## Diagnostics 
