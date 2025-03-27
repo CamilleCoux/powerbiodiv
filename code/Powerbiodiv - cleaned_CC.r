@@ -8,7 +8,7 @@ if(length(new.packages)) install.packages(new.packages)
 library(ggplot2)
 library(readxl) 
 library(plyr) 
-library(Hmisc)
+# library(Hmisc)
 library(psych)
 library(stringr)
 library(polycor)
@@ -106,7 +106,7 @@ allSelectionsBisNames[["Process"]] <- c("Level", "Magnitude", "Duration")
 
 
 final_names <- allSelectionsBis
-final_names <- lapply(1:length(final_names), function(x){
+final_names2 <- lapply(1:length(final_names), function(x){
   latvar <- names(final_names[x])
   names(final_names[[x]]) <- allSelectionsBisNames[[latvar]]
   return(final_names[x])
@@ -118,8 +118,39 @@ cc_names[["Devolution"]] <- list(
   f1=c( "V019", "V043" ,"V053" ,"V054" ,"V095"),
   f2 = c("V053","V057","V059", "V110", "V112")
 )
+cc_names[["Inclusive"]] <- list(
+  f1=c( "V048", "V049" ,"V050" ,"V051")
+)
+# this one doesn't really give anything out. Perhaps use obs variables direclty rather tah latent vars ?
+cc_names[["Constructive"]] <- list(
+  f1=c( "V070", "V093" )
+)
 
+cc_names[["Knowledge"]] <- list(
+  f1=c("V047", "V089", "V090", "V091", "V092")
+)
+cc_names[["Facilitation"]] <- list(
+  f1=c("V046", "V081", "V082", "V083")
+)
+cc_names[["Context"]] <- list(
+  f1=c("V039", "V040", "V041c", "V031"),
+  f2=c("V029", "V044", "V030")
+)
+cc_names[["Goals"]] <- list(
+  f1=c("V101", "V102", "V103", "V106")
+)
+cc_names[["Social"]] <- list(
+  f1=c("V114", "V115", "V117", "V119")
+)
+# obs variables are too correlated with one another. 
+cc_names[["Environmental"]] <- list(
+  f1=c("124")
+)
 
+cc_names[["Process"]] <- list(
+  f1=c("V015", "V021", "V128b", "V060c"),
+  f2=c("V114", "V020", "V011c", "V065c")
+)
 #################
 #### Load and curate data, impute missing data
 ######## Note: I keep this code here for inforamation but we don't need to rerun it: the curated data is saved as "myDataFacImp.RData"
@@ -220,7 +251,7 @@ load(file = here::here("data/cc.rdata"))
 # ""Devolution"    "Inclusive"     "Constructive"  "Knowledge"     "Facilitation"  "Context"       "Goals"         "Social"       "Environmental" "Process" 
 # Social : ok. Leave as is.
 
-myGroup = "Inclusive"
+myGroup = "Process"
 
 ## EFA with polychoric FA (iterative process: change the number of factors and observe results: do they make sense?)
 # groupvars <-  allSelections[[myGroup]][-grep("V111", allSelections[[myGroup]])]
@@ -229,8 +260,13 @@ myDataFactor <- myDataFacImp[ , allSelections[[myGroup]]]
 myDataFactor <- myDataFacImp[ , unlist(allSelectionsBis[[myGroup]])]
 
 myCor <- hetcor(myDataFactor)   # polychoric corr matrix
-
-
+cc_cor <- lavCor(myDataFactor, ordered = unlist(allSelections[[myGroup]]) )
+lavaan_EFA <- lavaan::efa(data = myDataFactor,
+  ov.names = unlist(allSelections[[myGroup]]) ,
+  nfactors = 2, 
+  rotation= "varimax",
+  output="lavaan"
+)
 # to find out how many factors are needed: 2. All good.
 fa.parallel(myCor$correlations, fm='minres', fa='fa')
 
@@ -240,17 +276,17 @@ fa.parallel(myCor$correlations, fm='minres', fa='fa')
 
 
 # CC: try to use lavCor instead of fa():
-cc_cor <- lavCor(myDataFactor, ordered =  unlist(allSelectionsBis[[myGroup]]) )
+cc_cor <- lavCor(myDataFactor, ordered =  unlist(allSelections[[myGroup]]) )
 diag(cc_cor) <- 0
 cc_cor_mat <- as.data.frame(cc_cor) %>% as.matrix
 
 cc_cor_mat %>% abs() %>% apply(., 1, max)
 
-# V074 et V071 sont corrélées à 0.875 : exit V071
-# V071 et V050 sont corrélées à 0.0.9 : exit V071
+# V074 et V071 sont corrélées à 0.875 : exit V094
+# V071 et V050 sont corrélées à 0.0.9 : exit V070
 # V052 et V049 sont corrélées à 0.8: exit V052 
 
-cc_selection <- c( "V048","V049","V050","V051","V074")
+cc_selection <- c( "V014" , "V015" , "V020",  "V021"  ,"V128b", "V011c", "V060c", "V065c" )
 myDataFactor <- myDataFacImp[ , cc_selection]
 myCor <- hetcor(myDataFactor)  
 cc_cor <- lavCor(myDataFactor, ordered =  cc_selection )
@@ -264,7 +300,7 @@ image(cc_cor_mat)
 
 n=82
 myEFA <- psych::fa(r=myCor$correlations, nfactors = 2, n.obs=n, rotate = "varimax", fm="ml")
-cc_EFA <- psych::fa(r=cc_cor_mat, nfactors = 2, n.obs=n, rotate = "varimax", fm="ml")
+cc_EFA <- psych::fa(r=cc_cor_mat, nfactors = 3, n.obs=n, rotate = "varimax", fm="ml")
 
 
 lavaan_EFA <- lavaan::efa(data = myDataFactor,
@@ -289,8 +325,9 @@ print(myEFA$loadings)
 
 ## CFA
 myDataFactor <- myDataFacImp[ , unlist(allSelectionsBis[[myGroup]])]
+myDataFactor <- myDataFacImp[ , unlist(cc_names[[myGroup]])]
 SEM1 <- createModel(myGroup)
-SEM1 <- c("Social =~ V114 + V115 + V116 + V117 + V118 + V119 + V120")
+SEM1 <- c("Process =~ V015 + V021 + V128b + V060c")
 fit1 <- lavaan::cfa(SEM1, data = myDataFacImp, sample.nobs = n, std.lv = TRUE, ordered = TRUE)
 summary(fit1, standardized = TRUE) # we want the pvalue to be > 0.05 because the model has to be similar to expectations, rather than different
 # look at the 1st table of latent variables. Not the thresholds.
